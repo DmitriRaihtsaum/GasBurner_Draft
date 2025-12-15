@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="tyInputs" Id="{0ce153db-a1ff-484d-8250-814414345075}">
+    <Declaration><![CDATA[TYPE tyInputs :
+STRUCT
+	bExternalError :BOOL ;
+	bAirOk : BOOL; 
+	bGasOk :BOOL; 
+	bTempertature_Burner_InLimits_Trig :BOOL; 
+	bIrSensor_FlamePresent : BOOL; 
+	bRun_Command :BOOL; 
+	bReset_Command:BOOL; 
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

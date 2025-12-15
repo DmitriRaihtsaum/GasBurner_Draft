@@ -1,0 +1,289 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Burner_Main" Id="{91f05acd-a3e4-4eaf-8bbb-3ba8696cb459}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK Burner_Main
+VAR_INPUT
+	SystemInputs : tyInputs ;
+END_VAR
+VAR_OUTPUT
+	BurnerOutputs:tyOutputs;
+END_VAR
+VAR
+	b_GasPressureSwitch_Pressure_Present: F_SimpleDI;
+	b_AirSensor_Flow_Present: F_SimpleDI;
+	b_FlameSensor_Flame_Present:F_SimpleDI;
+	b_Temp_Run_InLIM:F_SimpleDI;
+	b_ExternalError:F_SimpleDI;
+	//
+	PrevStep: enStateMode :=enStateMode.Idle;
+	CurrentStep: enStateMode :=enStateMode.Idle;
+	NextStep:enStateMode :=enStateMode.Idle;
+	//
+	wError:DWORD; 
+	
+	//
+	StepTimer:TON;
+	//
+		bFlamePossible : BOOL; 
+	FaultTimer:ton; 
+	WatchTimer:TON;
+	dummy: INT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[//=============================================================================
+// Dmitri Raihtsaum - Copyright 2025
+// Created By: Dmitri Raihtsaum
+//-----------------------------------------------------------------------------
+// Tested with:    TwinCAT 3
+// Engineering:    TwinCAT 3
+// Functionality: Gas Burner (DRAFT)
+// Date:           11.12.2025
+// Rev:            0.1
+//=============================================================================
+
+//-----------------------------------------------------------------------------
+// Digital Inputs Processing
+//-----------------------------------------------------------------------------
+b_GasPressureSwitch_Pressure_Present(
+    b_Simple_Di_Input := SystemInputs.bGasOk
+);
+
+b_AirSensor_Flow_Present(
+    b_Simple_Di_Input := SystemInputs.bAirOk
+);
+
+b_FlameSensor_Flame_Present(
+    b_Simple_Di_Input := SystemInputs.bIrSensor_FlamePresent
+);
+
+b_Temp_Run_InLIM(
+    b_Simple_Di_Input := SystemInputs.bTempertature_Burner_InLimits_Trig
+);
+
+b_ExternalError(
+    b_Simple_Di_Input := SystemInputs.bExternalError
+);
+
+//-----------------------------------------------------------------------------
+// Flame possible condition
+//-----------------------------------------------------------------------------
+IF b_AirSensor_Flow_Present.bSimpleDi_Out
+   AND BurnerOutputs.bGasSolenoidValve THEN
+    bFlamePossible := TRUE;
+ELSE
+    bFlamePossible := FALSE;
+END_IF;
+
+//-----------------------------------------------------------------------------
+// State Machine
+//-----------------------------------------------------------------------------
+CASE CurrentStep OF
+
+    //=========================================================================
+    enStateMode.Idle:
+    //=========================================================================
+        wError := 16#00;
+
+        BurnerOutputs.bAir              := FALSE;
+        BurnerOutputs.bGasSolenoidValve := FALSE;
+        BurnerOutputs.bIgniter          := FALSE;
+
+        IF SystemInputs.bRun_Command
+           AND NOT SystemInputs.bReset_Command THEN
+
+            IF     b_GasPressureSwitch_Pressure_Present.bSimpleDi_Out
+               AND NOT b_FlameSensor_Flame_Present.bSimpleDi_Out
+               AND NOT b_Temp_Run_InLIM.bSimpleDi_Out
+               AND NOT b_AirSensor_Flow_Present.bSimpleDi_Out THEN
+
+                NextStep := enStateMode.Preperation_Step_1;
+
+            ELSE
+                IF NOT b_GasPressureSwitch_Pressure_Present.bSimpleDi_Out THEN
+                    wError := SETBIT32(wError, 0);
+                END_IF;
+
+                IF b_FlameSensor_Flame_Present.bSimpleDi_Out THEN
+                    wError := SETBIT32(wError, 1);
+                END_IF;
+
+                IF b_Temp_Run_InLIM.bSimpleDi_Out THEN
+                    wError := SETBIT32(wError, 2);
+                END_IF;
+
+                IF b_AirSensor_Flow_Present.bSimpleDi_Out THEN
+                    wError := SETBIT32(wError, 3);
+                END_IF;
+            END_IF;
+        END_IF;
+
+    //=========================================================================
+    enStateMode.Preperation_Step_1:
+    //=========================================================================
+        IF PrevStep <> CurrentStep THEN
+            StepTimer(IN := FALSE, PT := T#0MS);
+            BurnerOutputs.bAir := TRUE;
+        ELSE
+            IF b_AirSensor_Flow_Present.bSimpleDi_Out THEN
+                NextStep := enStateMode.Preperation_Step_2;
+            ELSIF StepTimer.Q
+                  AND NOT b_AirSensor_Flow_Present.bSimpleDi_Out THEN
+                wError := SETBIT32(wError, 4);
+            END_IF;
+        END_IF;
+
+    //=========================================================================
+    enStateMode.Preperation_Step_2:
+    //=========================================================================
+        IF PrevStep <> CurrentStep THEN
+            StepTimer(IN := FALSE, PT := T#0MS);
+            BurnerOutputs.bIgniter := TRUE;
+        ELSE
+            StepTimer(IN := TRUE, PT := T#100MS);
+
+            IF b_FlameSensor_Flame_Present.bSimpleDi_Out THEN
+                wError := SETBIT32(wError, 5);
+                dummy := dummy;
+            ELSIF NOT b_FlameSensor_Flame_Present.bSimpleDi_Out
+                  AND NOT b_Temp_Run_InLIM.bSimpleDi_Out THEN
+                NextStep := enStateMode.IgnitionStep_1;
+            END_IF;
+        END_IF;
+
+    //=========================================================================
+    enStateMode.IgnitionStep_1:
+    //=========================================================================
+        IF PrevStep <> CurrentStep THEN
+            StepTimer(IN := FALSE, PT := T#0MS);
+            BurnerOutputs.bGasSolenoidValve := TRUE;
+        ELSE
+            StepTimer(IN := TRUE, PT := T#10S);
+
+            IF b_FlameSensor_Flame_Present.bSimpleDi_Out
+               AND b_Temp_Run_InLIM.bSimpleDi_Out
+               AND NOT StepTimer.Q THEN
+
+                NextStep := enStateMode.Stabilization;
+
+            ELSIF StepTimer.Q THEN
+                wError := SETBIT32(wError, 6);
+            END_IF;
+        END_IF;
+
+    //=========================================================================
+    enStateMode.Stabilization:
+    //=========================================================================
+        IF PrevStep <> CurrentStep THEN
+            StepTimer(IN := FALSE, PT := T#0MS);
+            BurnerOutputs.bIgniter := FALSE;
+        ELSE
+            StepTimer(IN := TRUE, PT := T#5S);
+
+            IF b_FlameSensor_Flame_Present.bSimpleDi_Out
+               AND b_Temp_Run_InLIM.bSimpleDi_Out
+               AND StepTimer.Q THEN
+
+                NextStep := enStateMode.Runing_Stable;
+
+            ELSIF (NOT b_FlameSensor_Flame_Present.bSimpleDi_Out
+                   OR b_Temp_Run_InLIM.bSimpleDi_Out)
+                   AND StepTimer.Q THEN
+
+                wError := SETBIT32(wError, 7);
+            END_IF;
+        END_IF;
+
+    //=========================================================================
+    enStateMode.Runing_Stable:
+    //=========================================================================
+        IF PrevStep <> CurrentStep THEN
+            StepTimer(IN := FALSE, PT := T#0MS);
+        ELSE
+            IF NOT b_FlameSensor_Flame_Present.bSimpleDi_Out
+               AND NOT b_Temp_Run_InLIM.bSimpleDi_Out THEN
+
+                StepTimer(IN := TRUE, PT := T#3S);
+            ELSE
+                StepTimer(IN := FALSE, PT := T#3S);
+            END_IF;
+
+            IF StepTimer.Q THEN
+                wError := SETBIT32(wError, 8);
+            END_IF;
+        END_IF;
+
+        IF NOT SystemInputs.bRun_Command THEN
+            NextStep := enStateMode.Stopping;
+        END_IF;
+
+    //=========================================================================
+    enStateMode.Stopping:
+    //=========================================================================
+        IF PrevStep <> CurrentStep THEN
+            StepTimer(IN := FALSE, PT := T#0MS);
+            BurnerOutputs.bGasSolenoidValve := FALSE;
+        ELSE
+            StepTimer(IN := TRUE, PT := T#10S);
+
+            IF StepTimer.Q THEN
+                NextStep := enStateMode.Idle;
+            END_IF;
+        END_IF;
+
+    //=========================================================================
+    enStateMode.Error:
+    //=========================================================================
+        BurnerOutputs.bAir              := FALSE;
+        BurnerOutputs.bGasSolenoidValve := FALSE;
+        BurnerOutputs.bIgniter          := FALSE;
+
+        IF SystemInputs.bReset_Command THEN
+            NextStep := enStateMode.Idle;
+        END_IF;
+
+END_CASE;
+
+//-----------------------------------------------------------------------------
+// Global Transitions & Watchdog
+//-----------------------------------------------------------------------------
+IF CurrentStep <> enStateMode.Idle
+   AND CurrentStep <> enStateMode.Error
+   AND CurrentStep <> enStateMode.Stopping THEN
+
+    IF NOT SystemInputs.bRun_Command
+       AND wError = 16#00 THEN
+        NextStep := enStateMode.Stopping;
+    END_IF;
+END_IF;
+
+IF (CurrentStep <> enStateMode.Idle
+    OR CurrentStep <> enStateMode.Error
+    OR CurrentStep <> enStateMode.Stopping
+    AND CurrentStep <> enStateMode.Runing_Stable)
+   AND NOT SystemInputs.bRun_Command THEN
+
+    WatchTimer(IN := TRUE, PT := T#20M);
+ELSE
+    WatchTimer(IN := FALSE, PT := T#0M);
+END_IF;
+
+IF WatchTimer.Q THEN
+    wError := SETBIT32(wError, 9);
+END_IF;
+
+IF (wError <> 16#00 OR SystemInputs.bExternalError)
+   AND NOT SystemInputs.bReset_Command THEN
+
+    NextStep := enStateMode.Error;
+END_IF;
+
+//-----------------------------------------------------------------------------
+// State update
+//-----------------------------------------------------------------------------
+PrevStep    := CurrentStep;
+CurrentStep := NextStep;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

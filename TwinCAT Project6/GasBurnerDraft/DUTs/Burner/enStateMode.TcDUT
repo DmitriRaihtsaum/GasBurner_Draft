@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="enStateMode" Id="{fec337fa-1102-433e-a12b-2d189bc85740}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+{attribute 'to_string'}
+TYPE enStateMode :
+(
+	Idle := 0, 
+	Preperation_Step_1 :=10 , 
+	Preperation_Step_2 :=11, 
+	IgnitionStep_1 :=20, 
+	Stabilization :=30,
+	Runing_Stable :=40,
+	Stopping :=50,
+	Error:=100
+	
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="tyOutputs" Id="{10f85482-c327-4748-b61f-6e285528b70a}">
+    <Declaration><![CDATA[TYPE tyOutputs :
+STRUCT
+	bGasSolenoidValve:BOOL; 
+	bAir:BOOL; 
+	bIgniter:BOOL; 
+	
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

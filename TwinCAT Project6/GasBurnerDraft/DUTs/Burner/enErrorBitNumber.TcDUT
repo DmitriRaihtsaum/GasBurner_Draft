@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="enErrorBitNumber" Id="{adbd0c05-dc60-4564-9827-25c3e558ff96}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+{attribute 'to_string'}
+TYPE enErrorBitNumber :
+(
+	Pressure := 0,
+	Flame:=1,
+	BurnerTemperature:=2
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
